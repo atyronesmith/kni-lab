@@ -4,28 +4,27 @@ set -x
 
 nthhost()
 {
-  address="$1"
-  nth="$2"
- 
-  VALID_IP_DIGIT='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
-  VALID_PREFIX_DIGIT='([0-9]|[1-2][0-9]|3[0-2])'
-  VALID_CIDR="\b$VALID_IP_DIGIT\.$VALID_IP_DIGIT\.$VALID_IP_DIGIT\.$VALID_IP_DIGIT"
-  VALID_CIDR+="\/$VALID_PREFIX_DIGIT\b"
-
-  echo $VALID_CIDR
-
-  if [[ $address =~ $VALID_CIDR ]]; then
+    address="$1"
+    nth="$2"
     
-    echo "Good"
-  else
-    echo "Bad"
-  fi
+    ips=($(nmap -n -sL $address 2>&1 | awk '/Nmap scan report/{print $NF}'))
+    ips_len="${#ips[@]}"
+    
+    if [ "$ips_len" -eq 0 ] || [ "$nth" -gt "$ips_len" ]; then
+        echo "Invalid address: $address or offset $nth"
+        exit 1
+    fi
+    
+    echo ${ips[$nth]}
 }
 
 BM_BRIDGE="baremetal"
 BM_BRIDGE_CIDR="192.168.111.0/24"
-BM_BRIDGE_IP="192.168.111.1"
 BM_BRIDGE_NETMASK="255.255.255.0"
+BM_BRIDGE_IP=$(nthhost "$BM_BRIDGE_CIDR" 1)
+
+API_VIP=$(nthhost "$BM_BRIDGE_CIDR" 5)
+INGRESS_VIP=$(nthhost "$BM_BRIDGE_CIDR" 4)
 
 DNSMASQ_CONF_DIR="/var/run/dnsmasq-bm"
 DNSMASQ_CONF_FILE="${DNSMASQ_CONF_DIR}/dnsmasq-bm.conf"
@@ -149,7 +148,7 @@ start_dnsmasq()
 create_dnsmasq_conf()
 {
     bridge="$1"
-
+    
     sudo mkdir -p ${DNSMASQ_CONF_DIR}
     
     {
@@ -180,7 +179,7 @@ setup_bridge()
     intf=$2
     ip_address=$3
     ip_netmask=$4
-
+    
     if [ -z ${bridge} ]; then
         echo "Missing bridge arg..."
         exit 1
@@ -197,8 +196,17 @@ setup_bridge()
     sudo ifup ${bridge}
     
     echo -e "DEVICE=${intf}\nTYPE=Ethernet\nONBOOT=yes\nNM_CONTROLLED=no\nBRIDGE=${bridge}" | sudo dd of=/etc/sysconfig/network-scripts/ifcfg-${intf}
-
+    
     sudo systemctl restart network
+}
+
+setup_host_dns()
+{
+    
+    echo "address=/api.${CLUSTER_NAME}.${BASE_DOMAIN}/${API_VIP}" | sudo tee /etc/NetworkManager/dnsmasq.d/openshift.conf
+    echo "address=/.apps.${CLUSTER_NAME}.${BASE_DOMAIN}/${INGRESS_VIP}" | sudo tee -a /etc/NetworkManager/dnsmasq.d/openshift.conf
+
+    sudo systemctl reload NetworkManager  
 }
 
 COMMAND=$1
@@ -208,6 +216,7 @@ case "$COMMAND" in
         read_config $2
         create_dnsmasq_conf ${BM_BRIDGE}
         setup_bridge ${BM_BRIDGE} $INT_IF ${BM_BRIDGE_IP} ${BM_BRIDGE_NETMASK}
+        setup_host_dns
         start_dnsmasq
     ;;
     stop)
