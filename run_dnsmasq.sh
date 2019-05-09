@@ -1,6 +1,32 @@
 #!/usr/bin/env bash
 set -x
 
+
+nthhost()
+{
+  address="$1"
+  nth="$2"
+ 
+  VALID_IP_DIGIT='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+  VALID_PREFIX_DIGIT='([0-9]|[1-2][0-9]|3[0-2])'
+  VALID_CIDR="\b$VALID_IP_DIGIT\.$VALID_IP_DIGIT\.$VALID_IP_DIGIT\.$VALID_IP_DIGIT"
+  VALID_CIDR+="\/$VALID_PREFIX_DIGIT\b"
+
+  echo $VALID_CIDR
+
+  if [[ $address =~ $VALID_CIDR ]]; then
+    
+    echo "Good"
+  else
+    echo "Bad"
+  fi
+}
+
+BM_BRIDGE="baremetal"
+BM_BRIDGE_CIDR="192.168.111.0/24"
+BM_BRIDGE_IP="192.168.111.1"
+BM_BRIDGE_NETMASK="255.255.255.0"
+
 DNSMASQ_CONF_DIR="/var/run/dnsmasq-bm"
 DNSMASQ_CONF_FILE="${DNSMASQ_CONF_DIR}/dnsmasq-bm.conf"
 DNSMASQ_PID_FILE="${DNSMASQ_CONF_DIR}/dnsmasq-bm.pid"
@@ -122,6 +148,8 @@ start_dnsmasq()
 
 create_dnsmasq_conf()
 {
+    bridge="$1"
+
     sudo mkdir -p ${DNSMASQ_CONF_DIR}
     
     {
@@ -134,13 +162,13 @@ expand-hosts
 pid-file=${DNSMASQ_PID_FILE}
 except-interface=lo
 bind-dynamic
-interface=${INT_IF}
+interface=${bridge}
 dhcp-range=192.168.111.20,192.168.111.60
 dhcp-no-override
 dhcp-authoritative
 dhcp-lease-max=41
-dhcp-hostsfile=${DNSMASQ_CONF_DIR}/baremetal.hostsfile
-addn-hosts=${DNSMASQ_CONF_DIR}/baremetal.addnhosts
+dhcp-hostsfile=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile
+addn-hosts=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.addnhosts
 EOF
     } | sudo dd of=${DNSMASQ_CONF_FILE}
     
@@ -178,8 +206,8 @@ COMMAND=$1
 case "$COMMAND" in
     start)
         read_config $2
-        create_dnsmasq_conf
-        setup_bridge "baremetal" $INT_IF "192.168.111.1" "255.255.255.0"
+        create_dnsmasq_conf ${BM_BRIDGE}
+        setup_bridge ${BM_BRIDGE} $INT_IF ${BM_BRIDGE_IP} ${BM_BRIDGE_NETMASK}
         start_dnsmasq
     ;;
     stop)
