@@ -7,7 +7,7 @@ nthhost()
     address="$1"
     nth="$2"
     
-    ips=($(nmap -n -sL $address 2>&1 | awk '/Nmap scan report/{print $NF}'))
+    ips=($(nmap -n -sL "$address" 2>&1 | awk '/Nmap scan report/{print $NF}'))
     ips_len="${#ips[@]}"
     
     if [ "$ips_len" -eq 0 ] || [ "$nth" -gt "$ips_len" ]; then
@@ -15,7 +15,7 @@ nthhost()
         exit 1
     fi
     
-    echo ${ips[$nth]}
+    echo "${ips[$nth]}"
 }
 
 EXTERNAL_INTERFACE="eno1"
@@ -42,7 +42,7 @@ usage() {
     cat <<EOM
     Starts/stops/installs a dnsmasq instance to serve DNS/DHCP for the baremetal network in the METAL3 environment.
     Usage:
-    $(basename $0) start config_file|stop
+    $(basename "$0") start config_file|stop
     Starts a dnsmasq instance to serve DNS and DHCP for the baremetal network in the metal3 environment.
         start config_file -- Start the dnsmasq instance with the variables define in the config_file.
                               The config_file is the file that is passed to metal3 deploy.
@@ -65,21 +65,6 @@ set_variable()
     fi
 }
 
-unset CONFIG_FILE
-unset COMMAND
-
-while getopts 'c:kh' c
-do
-    case $c in
-        c) set_variable CONFIG_FILE $OPTARG ;;
-        i) KILL=1 ;;
-        h|?) usage ;;
-    esac
-done
-
-# Shift to arguments
-shift $((OPTIND-1))
-
 if [ "$#" -lt 1 ]; then
     usage
 fi
@@ -87,8 +72,7 @@ fi
 stop_dnsmasq()
 {
     if [ -e "$DNSMASQ_PID_FILE" ]; then
-        kill $(cat ${DNSMASQ_PID_FILE})
-        if [ $? -ne 0 ]; then
+        if ! kill "$(cat "$DNSMASQ_PID_FILE")"; then
             echo "Could not stop dnsmasq instance, must stop manually..."
             exit 1
         fi
@@ -124,18 +108,18 @@ read_config()
         exit 1
     fi
     
-    source "${config_file}"
+    source "$config_file"
     
-    check_var BASE_DOMAIN ${config_file}
-    check_var CLUSTER_NAME ${config_file}
-    check_var INT_IF ${config_file}
+    check_var BASE_DOMAIN "$config_file"
+    check_var CLUSTER_NAME "$config_file"
+    check_var INT_IF "$config_file"
 }
 
 stop_dnsmasq()
 {
     if [ -e ${DNSMASQ_PID_FILE} ]; then
         pid=$(cat ${DNSMASQ_PID_FILE})
-        sudo kill $pid
+        sudo kill "$pid"
     fi
 }
 
@@ -156,13 +140,13 @@ start_dnsmasq()
     sudo dnsmasq -x ${DNSMASQ_PID_FILE} -q -C ${DNSMASQ_CONF_FILE}
     
     #allow DNS/DHCP traffic to dnsmasq
-    add_rule "INPUT -i "$bridge" -p udp -m udp --dport 67 -j ACCEPT"
-    add_rule "INPUT -i "$bridge" -p udp -m udp --dport 53 -j ACCEPT"
+    add_rule "INPUT -i $bridge -p udp -m udp --dport 67 -j ACCEPT"
+    add_rule "INPUT -i $bridge -p udp -m udp --dport 53 -j ACCEPT"
 
     #enable routing from cluster network to external
     add_rule "-t nat POSTROUTING -o $EXTERNAL_INTERFACE -j MASQUERADE"
     add_rule "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -j ACCEPT"
-    add_rule "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT"
+    add_rule "FORWARD -o $bridge -i $EXTERNAL_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT"
 }
 
 create_dnsmasq_conf()
@@ -200,22 +184,22 @@ setup_bridge()
     ip_address=$3
     ip_netmask=$4
     
-    if [ -z ${bridge} ]; then
+    if [ -z "$bridge" ]; then
         echo "Missing bridge arg..."
         exit 1
     fi
     
-    if [ -z ${intf} ]; then
+    if [ -z "$intf" ]; then
         echo "Missing interface arg..."
         exit 1
     fi
     
-    echo -e "DEVICE=${bridge}\nTYPE=Bridge\nONBOOT=yes\nNM_CONTROLLED=no\nIPADDR=${ip_address}\nNETMASK=${ip_netmask}" | sudo dd of=/etc/sysconfig/network-scripts/ifcfg-${bridge}
+    echo -e "DEVICE=${bridge}\nTYPE=Bridge\nONBOOT=yes\nNM_CONTROLLED=no\nIPADDR=$ip_address\nNETMASK=$ip_netmask" | sudo dd of=/etc/sysconfig/network-scripts/ifcfg-"$bridge"
     
-    sudo ifdown ${bridge} || true
-    sudo ifup ${bridge}
+    sudo ifdown "$bridge" || true
+    sudo ifup "$bridge"
     
-    echo -e "DEVICE=${intf}\nTYPE=Ethernet\nONBOOT=yes\nNM_CONTROLLED=no\nBRIDGE=${bridge}" | sudo dd of=/etc/sysconfig/network-scripts/ifcfg-${intf}
+    echo -e "DEVICE=$intf\nTYPE=Ethernet\nONBOOT=yes\nNM_CONTROLLED=no\nBRIDGE=$bridge" | sudo dd of=/etc/sysconfig/network-scripts/ifcfg-"$intf"
     
     sudo systemctl restart network
 }
@@ -233,11 +217,11 @@ COMMAND=$1
 
 case "$COMMAND" in
     start)
-        read_config $2
+        read_config "$2"
         create_dnsmasq_conf ${BM_BRIDGE}
-        setup_bridge ${BM_BRIDGE} $INT_IF ${BM_BRIDGE_IP} ${BM_BRIDGE_NETMASK}
+        setup_bridge "$BM_BRIDGE" "$INT_IF" "$BM_BRIDGE_IP" "$BM_BRIDGE_NETMASK"
         setup_host_dns
-        start_dnsmasq ${BM_BRIDGE}
+        start_dnsmasq "$BM_BRIDGE"
     ;;
     stop)
         stop_dnsmasq
