@@ -123,30 +123,34 @@ stop_dnsmasq()
     fi
 }
 
-add_rule() 
+insert_rule() 
 {
-    rule=$1
+    table=$1
+    rule=$2
 
-    if ! sudo iptables -C "$rule" 2>/dev/null ; then
-      sudo iptables -I "$rule"
+    if ! sudo iptables -t $table -C $rule > /dev/null 2>&1; then
+      sudo iptables -t $table -I $rule
     fi
+}
+
+add_iptable_rules()
+{
+    bridge=$1
+
+    #allow DNS/DHCP traffic to dnsmasq
+    insert_rule "filter" "INPUT -i $bridge -p udp -m udp --dport 67 -j ACCEPT"
+    insert_rule "filter" "INPUT -i $bridge -p udp -m udp --dport 53 -j ACCEPT"
+
+    #enable routing from cluster network to external
+    insert_rule "nat" "POSTROUTING -o $EXTERNAL_INTERFACE -j MASQUERADE"
+    insert_rule "filter" "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -j ACCEPT"
+    insert_rule "filter" "FORWARD -o $bridge -i $EXTERNAL_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT"
 }
 
 start_dnsmasq()
 {
-    bridge=$1
-
     stop_dnsmasq
     sudo dnsmasq -x ${DNSMASQ_PID_FILE} -q -C ${DNSMASQ_CONF_FILE}
-    
-    #allow DNS/DHCP traffic to dnsmasq
-    add_rule "INPUT -i $bridge -p udp -m udp --dport 67 -j ACCEPT"
-    add_rule "INPUT -i $bridge -p udp -m udp --dport 53 -j ACCEPT"
-
-    #enable routing from cluster network to external
-    add_rule "-t nat POSTROUTING -o $EXTERNAL_INTERFACE -j MASQUERADE"
-    add_rule "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -j ACCEPT"
-    add_rule "FORWARD -o $bridge -i $EXTERNAL_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT"
 }
 
 create_dnsmasq_conf()
@@ -221,12 +225,14 @@ case "$COMMAND" in
         create_dnsmasq_conf ${BM_BRIDGE}
         setup_bridge "$BM_BRIDGE" "$INT_IF" "$BM_BRIDGE_IP" "$BM_BRIDGE_NETMASK"
         setup_host_dns
-        start_dnsmasq "$BM_BRIDGE"
+        start_dnsmasq
+        add_iptable_rules
     ;;
     stop)
         stop_dnsmasq
     ;;
-    install)
+    iptable)
+        add_iptable_rules "$BM_BRIDGE"
     ;;
     *)
         echo "Unknown command: ${COMMAND}"
