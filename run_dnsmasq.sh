@@ -65,8 +65,6 @@ set_variable()
     fi
 }
 
-lsx
-
 unset CONFIG_FILE
 unset COMMAND
 
@@ -141,19 +139,30 @@ stop_dnsmasq()
     fi
 }
 
+add_rule() 
+{
+    rule=$1
+
+    if ! sudo iptables -C "$rule" 2>/dev/null ; then
+      sudo iptables -I "$rule"
+    fi
+}
+
 start_dnsmasq()
 {
     bridge=$1
 
     stop_dnsmasq
     sudo dnsmasq -x ${DNSMASQ_PID_FILE} -q -C ${DNSMASQ_CONF_FILE}
+    
+    #allow DNS/DHCP traffic to dnsmasq
+    add_rule "INPUT -i "$bridge" -p udp -m udp --dport 67 -j ACCEPT"
+    add_rule "INPUT -i "$bridge" -p udp -m udp --dport 53 -j ACCEPT"
 
-    sudo iptables -I INPUT -i "$bridge" -p udp -m udp --dport 67 -j ACCEPT
-    sudo iptables -I INPUT -i "$bridge" -p udp -m udp --dport 53 -j ACCEPT
-    sudo iptables -t nat -A POSTROUTING -o "$EXTERNAL_INTERFACE" -j MASQUERADE
-    sudo iptables -I FORWARD -i ${INT_IF} -o ${EXTERNAL_INTERFACE} -j ACCEPT
-    sudo iptables -I FORWARD -i ${INT_IF} -o ${EXTERNAL_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
-
+    #enable routing from cluster network to external
+    add_rule "-t nat POSTROUTING -o $EXTERNAL_INTERFACE -j MASQUERADE"
+    add_rule "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -j ACCEPT"
+    add_rule "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT"
 }
 
 create_dnsmasq_conf()
