@@ -18,6 +18,8 @@ nthhost()
     echo ${ips[$nth]}
 }
 
+EXTERNAL_INTERFACE="eno1"
+
 BM_BRIDGE="baremetal"
 BM_BRIDGE_CIDR="192.168.111.0/24"
 BM_BRIDGE_NETMASK="255.255.255.0"
@@ -141,8 +143,17 @@ stop_dnsmasq()
 
 start_dnsmasq()
 {
+    bridge=$1
+
     stop_dnsmasq
     sudo dnsmasq -x ${DNSMASQ_PID_FILE} -q -C ${DNSMASQ_CONF_FILE}
+
+    sudo iptables -I INPUT -i "$bridge" -p udp -m udp --dport 67 -j ACCEPT
+    sudo iptables -I INPUT -i "$bridge" -p udp -m udp --dport 53 -j ACCEPT
+    sudo iptables -t nat -A POSTROUTING -o "$EXTERNAL_INTERFACE" -j MASQUERADE
+    sudo iptables -I FORWARD -i ${INT_IF} -o ${EXTERNAL_INTERFACE} -j ACCEPT
+    sudo iptables -I FORWARD -i ${INT_IF} -o ${EXTERNAL_INTERFACE} -m state --state RELATED,ESTABLISHED -j ACCEPT
+
 }
 
 create_dnsmasq_conf()
@@ -217,7 +228,7 @@ case "$COMMAND" in
         create_dnsmasq_conf ${BM_BRIDGE}
         setup_bridge ${BM_BRIDGE} $INT_IF ${BM_BRIDGE_IP} ${BM_BRIDGE_NETMASK}
         setup_host_dns
-        start_dnsmasq
+        start_dnsmasq ${BM_BRIDGE}
     ;;
     stop)
         stop_dnsmasq
