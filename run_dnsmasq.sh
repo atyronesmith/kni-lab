@@ -22,6 +22,8 @@ EXTERNAL_INTERFACE="eno1"
 
 BM_BRIDGE="baremetal"
 BM_BRIDGE_CIDR="192.168.111.0/24"
+BM_BRIDGE_DHCP_START_OFFSET=20
+BM_BRIDGE_DHCP_END_OFFSET=60
 BM_BRIDGE_NETMASK="255.255.255.0"
 BM_BRIDGE_IP=$(nthhost "$BM_BRIDGE_CIDR" 1)
 
@@ -123,24 +125,24 @@ stop_dnsmasq()
     fi
 }
 
-insert_rule() 
+insert_rule()
 {
     table=$1
     rule=$2
-
+    
     if ! sudo iptables -t $table -C $rule > /dev/null 2>&1; then
-      sudo iptables -t $table -I $rule
+        sudo iptables -t "$table" -I "$rule"
     fi
 }
 
 add_iptable_rules()
 {
     bridge=$1
-
+    
     #allow DNS/DHCP traffic to dnsmasq
     insert_rule "filter" "INPUT -i $bridge -p udp -m udp --dport 67 -j ACCEPT"
     insert_rule "filter" "INPUT -i $bridge -p udp -m udp --dport 53 -j ACCEPT"
-
+    
     #enable routing from cluster network to external
     insert_rule "nat" "POSTROUTING -o $EXTERNAL_INTERFACE -j MASQUERADE"
     insert_rule "filter" "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -j ACCEPT"
@@ -153,12 +155,15 @@ start_dnsmasq()
     sudo dnsmasq -x ${DNSMASQ_PID_FILE} -q -C ${DNSMASQ_CONF_FILE}
 }
 
-create_dnsmasq_conf()
+install_dns_conf()
 {
-    bridge="$1"
-    
+    bridge=$1
+    hostfile=$2
+
     sudo mkdir -p ${DNSMASQ_CONF_DIR}
     
+    dhcp_range_start=$(nthhost "$BM_BRIDGE_CIDR" "$BM_BRIDGE_DHCP_START_OFFSET")
+    dhcp_range_end=$(nthhost "$BM_BRIDGE_CIDR" "$BM_BRIDGE_DHCP_END_OFFSET")
     {
   cat << EOF
 strict-order
@@ -170,14 +175,39 @@ pid-file=${DNSMASQ_PID_FILE}
 except-interface=lo
 bind-dynamic
 interface=${bridge}
-dhcp-range=192.168.111.20,192.168.111.60
+dhcp-range=${dhcp_range_start},${dhcp_range_end}
 dhcp-no-override
 dhcp-authoritative
 dhcp-lease-max=41
 dhcp-hostsfile=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile
 addn-hosts=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.addnhosts
 EOF
-    } | sudo dd of=${DNSMASQ_CONF_FILE}
+    } | sudo tee "${DNSMASQ_CONF_FILE}"
+    
+    # extract the mac address 
+    mac_address=($(jq  '.nodes[0:3] | .[] | "\(.ports[0].address)"' "$hostfile" | tr -d '"'))
+    # extract the name of each host
+    host_name=($(jq  '.nodes[0:3] | .[] | "\(.name)"' "$hostfile" | tr -d '"'))
+    
+    for ((i=0 ; i < ${#host_name[@]} ; i++)); do
+        ip_address=$(nthhost "$BM_BRIDGE_CIDR" $((i+BM_BRIDGE_DHCP_START_OFFSET)));
+        echo "${mac_address[$i]},$ip_address,${host_name[$i]}" | sudo tee -a "${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile"
+    done
+    
+
+    # jq  '.nodes[0:3] | .[] | "\(.ports[0].address),\(.name)"' ironic_hosts_3.json
+    # create dhcp-hostsfile.  This file must contain mac-address,ipaddress,name for each master
+    # start the allocation of master ip addresses at the bottom of the dhcp-range
+    # get the mac addresses from the ironic hosts file.
+
+    api_ip=$(nthhost "$BM_BRIDGE_CIDR" 5)
+    ns1_ip=$(nthhost "$BM_BRIDGE_CIDR" 2)
+   {
+  cat << EOF
+$api_ip api
+$ns1_ip ns1
+EOF
+    } | sudo tee "${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.addnhosts"
     
 }
 
@@ -213,18 +243,22 @@ setup_host_dns()
     
     echo "address=/api.${CLUSTER_NAME}.${BASE_DOMAIN}/${API_VIP}" | sudo tee /etc/NetworkManager/dnsmasq.d/openshift.conf
     echo "address=/.apps.${CLUSTER_NAME}.${BASE_DOMAIN}/${INGRESS_VIP}" | sudo tee -a /etc/NetworkManager/dnsmasq.d/openshift.conf
-
-    sudo systemctl reload NetworkManager  
+    
+    sudo systemctl reload NetworkManager
 }
 
 COMMAND=$1
+shift
 
 case "$COMMAND" in
     start)
-        read_config "$2"
-        create_dnsmasq_conf ${BM_BRIDGE}
+if [ "$#" -lt 2 ]; then
+    usage
+fi       
+        read_config "$1"
+        install_dns_conf "$BM_BRIDGE" "$2"
         setup_bridge "$BM_BRIDGE" "$INT_IF" "$BM_BRIDGE_IP" "$BM_BRIDGE_NETMASK"
-        setup_host_dns
+        setup_host_dns 
         start_dnsmasq
         add_iptable_rules
     ;;
