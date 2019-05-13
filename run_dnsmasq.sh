@@ -189,6 +189,8 @@ EOF
     # extract the name of each host
     host_name=($(jq  '.nodes[0:3] | .[] | "\(.name)"' "$hostfile" | tr -d '"'))
     
+    sudo rm "${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile"
+ 
     for ((i=0 ; i < ${#host_name[@]} ; i++)); do
         ip_address=$(nthhost "$BM_BRIDGE_CIDR" $((i+BM_BRIDGE_DHCP_START_OFFSET)));
         echo "${mac_address[$i]},$ip_address,${host_name[$i]}" | sudo tee -a "${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile"
