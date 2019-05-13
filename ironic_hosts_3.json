@@ -15,6 +15,11 @@
         {
           "address": "0c:c4:7a:db:a9:b9",
           "pxe_enabled": true
+        },
+        {
+         "address": "0c:c4:7a:19:6f:86",
+         "physical_network": "baremetal",
+         "pxe_enabled": false
         }
       ],
       "properties": {
@@ -37,6 +42,11 @@
         {
           "address": "0c:c4:7a:db:a9:af",
           "pxe_enabled": true
+        },
+        {
+         "address": "0c:c4:7a:8e:ec:e8",
+         "physical_network": "baremetal",
+         "pxe_enabled": false
         }
       ],
       "properties": {
@@ -59,6 +69,11 @@
         {
           "address": "0c:c4:7a:db:a9:ab",
           "pxe_enabled": true
+        },
+        {
+         "address": "0c:c4:7a:8e:ed:c8",
+         "physical_network": "baremetal",
+         "pxe_enabled": false
         }
       ],
       "properties": {

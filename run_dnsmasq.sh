@@ -88,7 +88,8 @@ stop_dnsmasq()
 check_var()
 {
     local varname=$1
-    shift
+    local config_file=$2
+
     if [ -z "${!varname}" ]; then
         echo "$varname not set in ${config_file}, must define $varname"
         exit 1
@@ -115,6 +116,7 @@ read_config()
     check_var BASE_DOMAIN "$config_file"
     check_var CLUSTER_NAME "$config_file"
     check_var INT_IF "$config_file"
+    check_var NODES_FILE "$config_file"
 }
 
 stop_dnsmasq()
@@ -183,12 +185,17 @@ dhcp-hostsfile=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile
 addn-hosts=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.addnhosts
 EOF
     } | sudo tee "${DNSMASQ_CONF_FILE}"
-    
+   
     # extract the mac address 
-    mac_address=($(jq  '.nodes[0:3] | .[] | "\(.ports[0].address)"' "$hostfile" | tr -d '"'))
+    mac_address=($(jq  '.nodes[0:3] | .[] | .ports[] | select(.physical_network=="baremetal") | "\(.address)"' "$hostfile" | tr -d '"'))
     # extract the name of each host
     host_name=($(jq  '.nodes[0:3] | .[] | "\(.name)"' "$hostfile" | tr -d '"'))
-    
+ 
+    if [ ${#mac_address[@]} != ${#host_name[@]} ]; then
+      echo "Invalid hostsfile: "$hostfile", missing hostname or baremetal mac address..."
+      exit 1
+    fi
+   
     sudo rm "${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile"
  
     for ((i=0 ; i < ${#host_name[@]} ; i++)); do
@@ -254,11 +261,11 @@ shift
 
 case "$COMMAND" in
     start)
-if [ "$#" -lt 2 ]; then
-    usage
-fi       
+        if [ "$#" -lt 1 ]; then
+          usage
+        fi       
         read_config "$1"
-        install_dns_conf "$BM_BRIDGE" "$2"
+        install_dns_conf "$BM_BRIDGE" "$NODES_FILE"
         setup_bridge "$BM_BRIDGE" "$INT_IF" "$BM_BRIDGE_IP" "$BM_BRIDGE_NETMASK"
         setup_host_dns 
         start_dnsmasq
@@ -269,6 +276,10 @@ fi
     ;;
     iptable)
         add_iptable_rules "$BM_BRIDGE"
+    ;;
+    setup-dns)
+        read_config "$1"
+        install_dns_conf "$BM_BRIDGE" "$2"
     ;;
     *)
         echo "Unknown command: ${COMMAND}"
