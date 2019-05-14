@@ -7,7 +7,8 @@ nthhost()
     address="$1"
     nth="$2"
     
-    ips=($(nmap -n -sL "$address" 2>&1 | awk '/Nmap scan report/{print $NF}'))
+    mapfile -t ips < <(nmap -n -sL "$address" 2>&1 | awk '/Nmap scan report/{print $NF}')
+    #ips=($(nmap -n -sL "$address" 2>&1 | awk '/Nmap scan report/{print $NF}'))
     ips_len="${#ips[@]}"
     
     if [ "$ips_len" -eq 0 ] || [ "$nth" -gt "$ips_len" ]; then
@@ -57,18 +58,6 @@ usage() {
         setup-dnsmasq     -- Generate dnsmasq config files in /var/run/dnsmasq-bm/*
 EOM
     exit 1
-}
-
-set_variable()
-{
-    local varname=$1
-    shift
-    if [ -z "${!varname}" ]; then
-        eval "$varname=\"$@\""
-    else
-        echo "Error: $varname already set"
-        usage
-    fi
 }
 
 if [ "$#" -lt 1 ]; then
@@ -142,7 +131,7 @@ insert_rule()
     table=$1
     rule=$2
     
-    if ! sudo iptables -t $table -C $rule > /dev/null 2>&1; then
+    if ! sudo iptables -t "$table" -C "$rule" > /dev/null 2>&1; then
         sudo iptables -t "$table" -I "$rule"
     fi
 }
@@ -193,16 +182,21 @@ dhcp-authoritative
 dhcp-lease-max=41
 dhcp-hostsfile=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.hostsfile
 addn-hosts=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.addnhosts
+log-dhcp
+dhcp-leasefile=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.leasefile
+log-facility=${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.log
 EOF
     } | sudo tee "${DNSMASQ_CONF_FILE}"
    
     # extract the mac address 
-    mac_address=($(jq  '.nodes[0:3] | .[] | .ports[] | select(.physical_network=="baremetal") | "\(.address)"' "$hostfile" | tr -d '"'))
+    mapfile -t mac_address < <(jq  '.nodes[0:3] | .[] | .ports[] | select(.physical_network=="baremetal") | "\(.address)"' "$hostfile" | tr -d '"')
+    #mac_address=($(jq  '.nodes[0:3] | .[] | .ports[] | select(.physical_network=="baremetal") | "\(.address)"' "$hostfile" | tr -d '"'))
     # extract the name of each host
-    host_name=($(jq  '.nodes[0:3] | .[] | "\(.name)"' "$hostfile" | tr -d '"'))
+    mapfile -t host_name < <(jq  '.nodes[0:3] | .[] | "\(.name)"' "$hostfile" | tr -d '"')
+    #host_name=($(jq  '.nodes[0:3] | .[] | "\(.name)"' "$hostfile" | tr -d '"'))
  
     if [ ${#mac_address[@]} != ${#host_name[@]} ]; then
-      echo "Invalid hostsfile: "$hostfile", missing hostname or baremetal mac address..."
+      echo "Invalid hostsfile: $hostfile, missing hostname or baremetal mac address..."
       exit 1
     fi
    
