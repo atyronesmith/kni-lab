@@ -42,15 +42,19 @@ trap cleanup EXIT
 
 usage() {
     cat <<EOM
-    Starts/stops/installs a dnsmasq instance to serve DNS/DHCP for the baremetal network in the METAL3 environment.
+    Setup a provisioning host for RHHI.next.  
+    Installs a dnsmasq instance to serve DNS/DHCP for the baremetal network in the METAL3 environment.
+
     Usage:
-    $(basename "$0") start config_file|stop
+    $(basename "$0") setup config_file|stop-dnsmasq|setup-iptables|setup-dns
     Starts a dnsmasq instance to serve DNS and DHCP for the baremetal network in the metal3 environment.
-        start config_file -- Start the dnsmasq instance with the variables define in the config_file.
+        setup config_file -- Configure/Start the dnsmasq instance, setup local DNS, and add IPTABLE rules.
                               The config_file is the file that is passed to metal3 deploy.
                               i.e.
-                                CONFIG=.../nfvpelab.sh make
-        stop              -- Stop the dnsmasq instance if it exists (checks for /var/run/${DNSMASQ_PID_FILE}
+                                CONFIG=.../config_nfvpe.sh make
+        stop-dnsmasq      -- Stop the dnsmasq instance if it exists (checks for /var/run/${DNSMASQ_PID_FILE}
+        setup-iptables    -- Add iptable rules for provisioning host
+        setup-dnsmasq     -- Generate dnsmasq config files in /var/run/dnsmasq-bm/*
 EOM
     exit 1
 }
@@ -87,6 +91,12 @@ stop_dnsmasq()
 
 check_var()
 {
+
+    if [ "$#" -ne 2 ]; then
+      echo "${FUNCNAME[0]} requires 2 arguements, varname and config_file...($(caller))"
+      exit 1
+    fi
+
     local varname=$1
     local config_file=$2
 
@@ -101,7 +111,7 @@ read_config()
     config_file=$1
     
     if [ -z ${config_file+defined} ]; then
-        echo "Missing config file arg..."
+        echo "${FUNCNAME[0]}: Missing config file arg...called from $(caller)"
         usage
         exit 1
     fi
@@ -260,7 +270,7 @@ COMMAND=$1
 shift
 
 case "$COMMAND" in
-    start)
+    setup)
         if [ "$#" -lt 1 ]; then
           usage
         fi       
@@ -269,15 +279,18 @@ case "$COMMAND" in
         setup_bridge "$BM_BRIDGE" "$INT_IF" "$BM_BRIDGE_IP" "$BM_BRIDGE_NETMASK"
         setup_host_dns 
         start_dnsmasq
-        add_iptable_rules
-    ;;
-    stop)
-        stop_dnsmasq
-    ;;
-    iptable)
         add_iptable_rules "$BM_BRIDGE"
     ;;
-    setup-dns)
+    start-dnsmasq)
+        start_dnsmasq
+    ;;
+    stop-dnsmasq)
+        stop_dnsmasq
+    ;;
+    setup-iptable)
+        add_iptable_rules "$BM_BRIDGE"
+    ;;
+    setup-dnsmasq)
         read_config "$1"
         install_dns_conf "$BM_BRIDGE" "$2"
     ;;
