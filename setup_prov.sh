@@ -18,8 +18,8 @@ nthhost()
     
     echo "${ips[$nth]}"
 }
-
-EXTERNAL_INTERFACE="eno1"
+EXT_INTERFACE="eno1"
+BM_INTERFACE="eno1"
 
 BM_BRIDGE="baremetal"
 BM_BRIDGE_CIDR="192.168.111.0/24"
@@ -148,6 +148,15 @@ add_iptable_rules()
     insert_rule "nat" "POSTROUTING -o $EXTERNAL_INTERFACE -j MASQUERADE"
     insert_rule "filter" "FORWARD -i $bridge -o $EXTERNAL_INTERFACE -j ACCEPT"
     insert_rule "filter" "FORWARD -o $bridge -i $EXTERNAL_INTERFACE -m state --state RELATED,ESTABLISHED -j ACCEPT"
+   
+    #enable access to cluster through the provisioning host
+    #redirect external tcp connections to port 443 to the cluster ingress VIP port 443
+    insert_rule "nat" "PREROUTING -p tcp --dport 443 -j DNAT --to-destination $INGRESS_VIP:443"
+    #change the source address of connections to the ip of the BM bridge interface
+    insert_rule "nat" "POSTROUTING -p tcp -d $INGRESS_VIP --dport 443 -j SNAT --to-source $BM_BRIDGE_IP"
+    #allow port 443 to be forwarded 
+    insert_rule "filter" "FORWARD -d $INGRESS_VIP -p tcp --dport 443 -j ACCEPT"
+
 }
 
 start_dnsmasq()
