@@ -270,6 +270,7 @@ EOF
     {
   cat << EOF
 $api_ip api
+$api_ip api-int
 $ns1_ip ns1
 EOF
     } | sudo tee "${DNSMASQ_CONF_DIR}/${BM_BRIDGE}.addnhosts"
