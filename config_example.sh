@@ -10,5 +10,5 @@ export BASE_DOMAIN="kni.home"
 export MANAGE_BR_BRIDGE=n
 export NODES_PLATFORM=BM
 
-#export NUM_MASTERS="1"
+export NUM_MASTERS="1"
 export NODES_FILE="$HOME/dev/kni-lab/ironic_hosts_3.json"
